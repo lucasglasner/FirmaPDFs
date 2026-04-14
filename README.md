@@ -1,3 +1,13 @@
+---
+title: Firmador de PDFs
+emoji: ✍
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Firmador de PDFs
 
 Herramienta web liviana para colocar una firma (imagen JPG/PNG) en PDFs de forma visual y automática.
