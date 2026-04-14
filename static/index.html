@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Firmador de PDFs</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.2rem; font-weight: 600; }
+    header span { font-size: 0.85rem; color: #aaa; }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      background: #fff;
+      border-bottom: 2px solid #e0e0e0;
+      padding: 0 28px;
+    }
+    .tab-btn {
+      padding: 14px 28px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 0.95rem;
+      color: #666;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+      transition: color .2s, border-color .2s;
+    }
+    .tab-btn.active { color: #4f46e5; border-bottom-color: #4f46e5; font-weight: 600; }
+    .tab-btn:disabled { color: #bbb; cursor: not-allowed; }
+
+    /* ── Panels ── */
+    .panel { display: none; padding: 28px; max-width: 1200px; margin: 0 auto; }
+    .panel.active { display: block; }
+
+    /* ── Cards ── */
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 22px 26px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      margin-bottom: 20px;
+    }
+    .card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 16px; color: #333; }
+
+    /* ── Upload strip ── */
+    .upload-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+
+    .upload-box {
+      border: 2px dashed #c7d2fe;
+      border-radius: 8px;
+      padding: 18px 24px;
+      text-align: center;
+      cursor: pointer;
+      flex: 1;
+      min-width: 180px;
+      transition: border-color .2s, background .2s;
+    }
+    .upload-box:hover, .upload-box.drag-over { border-color: #4f46e5; background: #f5f3ff; }
+    .upload-box input[type=file] { display: none; }
+    .upload-box .icon { font-size: 2rem; }
+    .upload-box p { font-size: 0.8rem; color: #888; margin-top: 4px; }
+    .upload-box .label { font-size: 0.9rem; font-weight: 600; color: #4f46e5; margin-top: 6px; }
+    .upload-box.loaded { border-color: #22c55e; background: #f0fdf4; }
+    .upload-box.loaded .label { color: #16a34a; }
+
+    /* ── Canvas area ── */
+    #canvas-wrap {
+      position: relative;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      overflow: auto;
+      background: #888;
+      width: 100%;
+      height: 65vh;
+      min-height: 300px;
+    }
+    #canvas-inner {
+      position: relative;
+      display: inline-block;
+      line-height: 0;
+    }
+    #pdf-canvas { display: block; }
+    #sig-overlay {
+      position: absolute;
+      border: 2px dashed #4f46e5;
+      cursor: move;
+      user-select: none;
+      box-sizing: border-box;
+    }
+    #sig-overlay img { width: 100%; height: 100%; display: block; pointer-events: none; }
+    .resize-handle {
+      position: absolute;
+      width: 12px; height: 12px;
+      background: #4f46e5;
+      border-radius: 50%;
+      right: -6px; bottom: -6px;
+      cursor: se-resize;
+    }
+
+    /* ── Page nav ── */
+    .page-nav { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+    .nav-btn {
+      padding: 4px 14px;
+      border: 1px solid #c7d2fe;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: #4f46e5;
+    }
+    .nav-btn:disabled { color: #bbb; border-color: #eee; cursor: not-allowed; }
+    #page-label { font-size: 0.9rem; color: #555; }
+    #zoom-label {
+      min-width: 44px; text-align: center;
+      font-size: 0.85rem; color: #4f46e5; font-weight: 600;
+      cursor: pointer; padding: 2px 6px; border-radius: 4px;
+      user-select: none;
+    }
+    #zoom-label:hover { background: #e0e7ff; }
+
+    /* ── Coordinate inputs ── */
+    .coord-row {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 14px;
+    }
+    .coord-field { display: flex; flex-direction: column; gap: 4px; }
+    .coord-field label { font-size: 0.75rem; color: #888; font-weight: 600; text-transform: uppercase; }
+    .coord-field input {
+      width: 90px;
+      padding: 7px 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      color: #333;
+    }
+    .coord-field input:focus { outline: none; border-color: #4f46e5; }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 9px 22px;
+      border: none;
+      border-radius: 7px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .2s;
+    }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-primary { background: #4f46e5; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #4338ca; }
+    .btn-secondary { background: #e0e7ff; color: #4f46e5; }
+    .btn-secondary:hover:not(:disabled) { background: #c7d2fe; }
+    .btn-success { background: #22c55e; color: #fff; }
+    .btn-success:hover:not(:disabled) { background: #16a34a; }
+
+    /* ── Batch ── */
+    .drop-zone {
+      border: 2px dashed #c7d2fe;
+      border-radius: 8px;
+      padding: 28px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    .drop-zone:hover, .drop-zone.drag-over { border-color: #4f46e5; background: #f5f3ff; }
+    .drop-zone input[type=file] { display: none; }
+
+    #file-list { margin-top: 14px; }
+    .file-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 0.88rem;
+      background: #fafafa;
+    }
+    .file-item .badge {
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #dcfce7;
+      color: #16a34a;
+    }
+
+    /* ── Config summary ── */
+    .config-bar {
+      background: #f5f3ff;
+      border: 1px solid #c7d2fe;
+      border-radius: 8px;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+      font-size: 0.88rem;
+      color: #4338ca;
+      margin-bottom: 20px;
+    }
+    .config-bar strong { color: #1a1a2e; }
+    .config-bar .unconfigured { color: #ef4444; }
+
+    /* ── Pages radio ── */
+    .radio-row { display: flex; gap: 18px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+    .radio-row label { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer; }
+
+    /* ── Preview image ── */
+    #preview-img { max-width: 100%; border-radius: 8px; margin-top: 16px; display: none; border: 1px solid #ddd; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 28px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #1a1a2e;
+      color: #fff;
+      padding: 10px 24px;
+      border-radius: 30px;
+      font-size: 0.88rem;
+      transition: transform .3s;
+      pointer-events: none;
+      z-index: 9999;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── Status ── */
+    .status { font-size: 0.8rem; color: #888; margin-top: 6px; }
+    .status.ok { color: #22c55e; }
+    .status.err { color: #ef4444; }
+
+    .hint { font-size: 0.78rem; color: #aaa; margin-top: 6px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>✍ Firmador de PDFs</h1>
+  <span>Posiciona tu firma visualmente y firma múltiples PDFs de una vez</span>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="configure">1 · Configurar posición</button>
+  <button class="tab-btn" data-tab="batch" id="tab-batch" disabled>2 · Firma en lote</button>
+</div>
+
+<!-- ═══════════════════════════ TAB 1 ═══════════════════════════ -->
+<div class="panel active" id="panel-configure">
+
+  <div class="card">
+    <h2>Cargar archivos</h2>
+    <div class="upload-row">
+
+      <label class="upload-box" id="pdf-box">
+        <input type="file" id="pdf-input" accept="application/pdf" />
+        <div class="icon">📄</div>
+        <div class="label">Cargar PDF</div>
+        <p>Clic o arrastra un archivo aquí</p>
+      </label>
+
+      <label class="upload-box" id="sig-box">
+        <input type="file" id="sig-input" accept="image/jpeg,image/png" />
+        <div class="icon">🖊</div>
+        <div class="label">Cargar Firma</div>
+        <p>Clic o arrastra JPG / PNG</p>
+      </label>
+
+    </div>
+    <div id="upload-status" class="status"></div>
+  </div>
+
+  <div class="card" id="canvas-card" style="display:none">
+    <h2>Arrastra y redimensiona la firma sobre la página</h2>
+
+    <div class="page-nav">
+      <button class="nav-btn" id="prev-page">◀</button>
+      <span id="page-label">Página 1 / 1</span>
+      <button class="nav-btn" id="next-page">▶</button>
+      <span style="margin-left:12px;color:#ccc">|</span>
+      <button class="nav-btn" id="zoom-out" title="Reducir zoom">−</button>
+      <span id="zoom-label" title="Clic para restablecer">100%</span>
+      <button class="nav-btn" id="zoom-in" title="Aumentar zoom">+</button>
+    </div>
+
+    <div id="canvas-wrap">
+      <div id="canvas-inner">
+        <canvas id="pdf-canvas"></canvas>
+        <div id="sig-overlay" style="display:none">
+          <img id="sig-img" src="" alt="signature" />
+          <div class="resize-handle" id="resize-handle"></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="hint">arrastra la firma para moverla · arrastra el punto azul para cambiar el tamaño</p>
+
+    <div class="coord-row">
+      <div class="coord-field">
+        <label>X (pt)</label>
+        <input type="number" id="inp-x" min="0" />
+      </div>
+      <div class="coord-field">
+        <label>Y (pt)</label>
+        <input type="number" id="inp-y" min="0" />
+      </div>
+      <div class="coord-field">
+        <label>Ancho (pt)</label>
+        <input type="number" id="inp-w" min="10" />
+      </div>
+      <div class="coord-field">
+        <label>Alto (pt)</label>
+        <input type="number" id="inp-h" min="10" />
+      </div>
+      <button class="btn btn-secondary" id="btn-preview" style="margin-top:18px">👁 Vista previa</button>
+    </div>
+
+    <img id="preview-img" alt="preview" />
+
+    <div style="margin-top:20px">
+      <button class="btn btn-primary" id="btn-confirm">Confirmar posición →</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════ TAB 2 ═══════════════════════════ -->
+<div class="panel" id="panel-batch">
+
+  <div class="config-bar" id="config-bar">
+    <span id="cfg-pos" class="unconfigured">Posición: no configurada</span>
+    <span id="cfg-sig" class="unconfigured">Firma: no cargada</span>
+  </div>
+
+  <div class="card">
+    <h2>Cargar PDFs a firmar</h2>
+
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="batch-input" accept="application/pdf" multiple style="display:none" />
+      <div style="font-size:2rem">📂</div>
+      <p style="margin-top:8px;font-size:.9rem;color:#555">Clic o arrastra archivos PDF aquí</p>
+    </div>
+
+    <div id="file-list"></div>
+  </div>
+
+  <div class="card">
+    <h2>Opciones</h2>
+    <div class="radio-row">
+      <strong>Aplicar firma a:</strong>
+      <label><input type="radio" name="pages" value="all" checked /> Todas las páginas</label>
+      <label><input type="radio" name="pages" value="first" /> Solo primera página</label>
+      <label><input type="radio" name="pages" value="last" /> Solo última página</label>
+    </div>
+
+    <div style="margin-top:20px">
+      <button class="btn btn-success" id="btn-sign" disabled>✍ Firmar todo y descargar ZIP</button>
+    </div>
+    <div id="sign-status" class="status"></div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────
+const state = {
+  pdfId: null,
+  sigId: null,
+  sigUrl: null,
+  pdfPages: 1,
+  pdfWidth: 0,   // PDF points
+  pdfHeight: 0,
+  currentPage: 0,
+  // overlay in PDF points
+  pos: { x: 0, y: 0, w: 100, h: 100 },
+  confirmed: false,
+  batchFiles: [],
+  zoom: 1.0,
+  canvasNaturalW: 0,
+  sigRatio: 1.0,
+};
+
+// ─────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────
+function toast(msg, duration = 2500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+function setStatus(id, msg, type = '') {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + type;
+}
+
+// ─────────────────────────────────────────────
+// Tabs
+// ─────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + target).classList.add('active');
+  });
+});
+
+// ─────────────────────────────────────────────
+// Canvas / overlay helpers
+// ─────────────────────────────────────────────
+const canvas   = document.getElementById('pdf-canvas');
+const overlay  = document.getElementById('sig-overlay');
+const sigImg   = document.getElementById('sig-img');
+const wrap     = document.getElementById('canvas-wrap');
+
+function canvasScale() {
+  // pixels per PDF point
+  return canvas.offsetWidth / state.pdfWidth;
+}
+
+function pdfToCanvas(val) { return val * canvasScale(); }
+function canvasToPdf(val) { return val / canvasScale(); }
+
+function renderOverlay() {
+  if (!state.pdfId || !state.sigId) return;
+  const sc = canvasScale();
+  overlay.style.display = 'block';
+  overlay.style.left   = (state.pos.x * sc) + 'px';
+  overlay.style.top    = (state.pos.y * sc) + 'px';
+  overlay.style.width  = (state.pos.w * sc) + 'px';
+  overlay.style.height = (state.pos.h * sc) + 'px';
+  // sync inputs
+  document.getElementById('inp-x').value = Math.round(state.pos.x);
+  document.getElementById('inp-y').value = Math.round(state.pos.y);
+  document.getElementById('inp-w').value = Math.round(state.pos.w);
+  document.getElementById('inp-h').value = Math.round(state.pos.h);
+}
+
+// ─────────────────────────────────────────────
+// Zoom
+// ─────────────────────────────────────────────
+function applyZoom() {
+  if (state.zoom === 1.0) {
+    canvas.style.width = '';
+    canvas.style.maxWidth = wrap.clientWidth + 'px';
+  } else {
+    canvas.style.maxWidth = 'none';
+    canvas.style.width = (state.canvasNaturalW * state.zoom) + 'px';
+  }
+  document.getElementById('zoom-label').textContent = Math.round(state.zoom * 100) + '%';
+  renderOverlay();
+}
+
+// Zoom levels: 100 125 150 175 200
+const ZOOM_LEVELS = [1.0, 1.25, 1.5, 1.75, 2.0];
+
+function setZoom(z) {
+  state.zoom = z;
+  applyZoom();
+  const idx = ZOOM_LEVELS.indexOf(state.zoom);
+  document.getElementById('zoom-out').disabled = idx <= 0;
+  document.getElementById('zoom-in').disabled  = idx >= ZOOM_LEVELS.length - 1;
+}
+
+document.getElementById('zoom-in').addEventListener('click', () => {
+  const idx = ZOOM_LEVELS.indexOf(state.zoom);
+  if (idx < ZOOM_LEVELS.length - 1) setZoom(ZOOM_LEVELS[idx + 1]);
+});
+document.getElementById('zoom-out').addEventListener('click', () => {
+  const idx = ZOOM_LEVELS.indexOf(state.zoom);
+  if (idx > 0) setZoom(ZOOM_LEVELS[idx - 1]);
+});
+document.getElementById('zoom-label').addEventListener('click', () => {
+  setZoom(1.0);
+});
+wrap.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (e.shiftKey) {
+    wrap.scrollLeft += e.deltaY;
+  } else {
+    wrap.scrollTop += e.deltaY;
+  }
+}, { passive: false });
+
+async function loadPage(pageNum) {
+  if (!state.pdfId) return;
+  state.currentPage = pageNum;
+  document.getElementById('page-label').textContent =
+    `Página ${pageNum + 1} / ${state.pdfPages}`;
+  document.getElementById('prev-page').disabled = pageNum === 0;
+  document.getElementById('next-page').disabled = pageNum === state.pdfPages - 1;
+
+  const img = new window.Image();
+  img.onload = () => {
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    state.canvasNaturalW = img.naturalWidth;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    applyZoom();
+  };
+  img.src = `/api/page-image/${state.pdfId}/${pageNum}?t=${Date.now()}`;
+}
+
+// ─────────────────────────────────────────────
+// Upload PDF
+// ─────────────────────────────────────────────
+async function handlePdfFile(file) {
+  if (!file || file.type !== 'application/pdf') { toast('Solo se aceptan archivos PDF'); return; }
+  setStatus('upload-status', 'Subiendo PDF…');
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/api/upload-pdf', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    state.pdfId    = data.pdf_id;
+    state.pdfPages = data.pages;
+    state.pdfWidth  = data.width;
+    state.pdfHeight = data.height;
+    document.getElementById('pdf-box').classList.add('loaded');
+    document.getElementById('pdf-box').querySelector('.label').textContent =
+      file.name.length > 22 ? file.name.slice(0, 20) + '…' : file.name;
+    setStatus('upload-status', `PDF cargado — ${data.pages} página(s), ${Math.round(data.width)}×${Math.round(data.height)} pt`, 'ok');
+    document.getElementById('canvas-card').style.display = 'block';
+    await loadPage(0);
+    toast('PDF cargado ✓');
+  } catch (err) {
+    setStatus('upload-status', 'Error: ' + err.message, 'err');
+  }
+}
+
+async function handleSigFile(file) {
+  if (!file || !['image/jpeg','image/png','image/jpg'].includes(file.type)) { toast('Solo se aceptan imágenes JPG o PNG'); return; }
+  setStatus('upload-status', 'Subiendo firma…');
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/api/upload-signature', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    state.sigId  = data.sig_id;
+    state.sigUrl = data.signature_url;
+    const defaultW = Math.round(state.pdfWidth * 0.15) || 150;
+    state.sigRatio = data.height / data.width;
+    state.pos = {
+      x: Math.round(state.pdfWidth  * 0.75),
+      y: Math.round(state.pdfHeight * 0.85),
+      w: defaultW,
+      h: Math.round(defaultW * state.sigRatio),
+    };
+    sigImg.src = data.signature_url;
+    document.getElementById('sig-box').classList.add('loaded');
+    document.getElementById('sig-box').querySelector('.label').textContent =
+      file.name.length > 22 ? file.name.slice(0, 20) + '…' : file.name;
+    setStatus('upload-status', 'Firma cargada ✓', 'ok');
+    if (state.pdfId) renderOverlay();
+    toast('Firma cargada ✓');
+  } catch (err) {
+    setStatus('upload-status', 'Error: ' + err.message, 'err');
+  }
+}
+
+function addDragDrop(boxId, handler) {
+  const box = document.getElementById(boxId);
+  box.addEventListener('dragover',  (e) => { e.preventDefault(); box.classList.add('drag-over'); });
+  box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove('drag-over'); });
+  box.addEventListener('drop', (e) => {
+    e.preventDefault();
+    box.classList.remove('drag-over');
+    handler(e.dataTransfer.files[0]);
+  });
+}
+addDragDrop('pdf-box', handlePdfFile);
+addDragDrop('sig-box', handleSigFile);
+
+document.getElementById('pdf-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  setStatus('upload-status', 'Subiendo PDF…');
+
+  await handlePdfFile(file);
+});
+
+document.getElementById('sig-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  await handleSigFile(file);
+});
+
+// ─────────────────────────────────────────────
+// Page navigation
+// ─────────────────────────────────────────────
+document.getElementById('prev-page').addEventListener('click', () => {
+  if (state.currentPage > 0) loadPage(state.currentPage - 1);
+});
+document.getElementById('next-page').addEventListener('click', () => {
+  if (state.currentPage < state.pdfPages - 1) loadPage(state.currentPage + 1);
+});
+
+// ─────────────────────────────────────────────
+// Drag to move overlay
+// ─────────────────────────────────────────────
+let dragging = false, dragStartX, dragStartY, dragOrigX, dragOrigY;
+
+overlay.addEventListener('mousedown', (e) => {
+  if (e.target.id === 'resize-handle') return;
+  dragging = true;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  dragOrigX  = state.pos.x;
+  dragOrigY  = state.pos.y;
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  const dx = canvasToPdf(e.clientX - dragStartX);
+  const dy = canvasToPdf(e.clientY - dragStartY);
+  state.pos.x = Math.max(0, dragOrigX + dx);
+  state.pos.y = Math.max(0, dragOrigY + dy);
+  renderOverlay();
+});
+
+document.addEventListener('mouseup', () => { dragging = false; });
+
+// ─────────────────────────────────────────────
+// Resize handle
+// ─────────────────────────────────────────────
+let resizing = false, resizeStartX, resizeStartY, resizeOrigW, resizeOrigH;
+const handle = document.getElementById('resize-handle');
+
+handle.addEventListener('mousedown', (e) => {
+  resizing = true;
+  resizeStartX = e.clientX;
+  resizeStartY = e.clientY;
+  resizeOrigW  = state.pos.w;
+  resizeOrigH  = state.pos.h;
+  e.stopPropagation();
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!resizing) return;
+  const dw = canvasToPdf(e.clientX - resizeStartX);
+  state.pos.w = Math.max(20, resizeOrigW + dw);
+  state.pos.h = state.pos.w * state.sigRatio;
+  renderOverlay();
+});
+
+document.addEventListener('mouseup', () => { resizing = false; });
+
+// ─────────────────────────────────────────────
+// Manual coordinate inputs
+// ─────────────────────────────────────────────
+document.getElementById('inp-x').addEventListener('input', () => {
+  state.pos.x = parseFloat(document.getElementById('inp-x').value) || 0;
+  renderOverlay();
+});
+document.getElementById('inp-y').addEventListener('input', () => {
+  state.pos.y = parseFloat(document.getElementById('inp-y').value) || 0;
+  renderOverlay();
+});
+document.getElementById('inp-w').addEventListener('input', () => {
+  state.pos.w = parseFloat(document.getElementById('inp-w').value) || 100;
+  state.pos.h = state.pos.w * (state.sigRatio || 1);
+  document.getElementById('inp-h').value = Math.round(state.pos.h);
+  renderOverlay();
+});
+document.getElementById('inp-h').addEventListener('input', () => {
+  state.pos.h = parseFloat(document.getElementById('inp-h').value) || 100;
+  state.pos.w = state.pos.h / (state.sigRatio || 1);
+  document.getElementById('inp-w').value = Math.round(state.pos.w);
+  renderOverlay();
+});
+
+// ─────────────────────────────────────────────
+// Preview
+// ─────────────────────────────────────────────
+document.getElementById('btn-preview').addEventListener('click', async () => {
+  if (!state.pdfId || !state.sigId) { toast('Carga un PDF y una firma primero'); return; }
+  const btn = document.getElementById('btn-preview');
+  btn.disabled = true;
+  btn.textContent = '⏳ Generando…';
+
+  const form = new FormData();
+  form.append('pdf_id', state.pdfId);
+  form.append('sig_id', state.sigId);
+  form.append('page', state.currentPage);
+  form.append('x', state.pos.x);
+  form.append('y', state.pos.y);
+  form.append('w', state.pos.w);
+  form.append('h', state.pos.h);
+
+  try {
+    const res = await fetch('/api/preview', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const img  = document.getElementById('preview-img');
+    img.src = url;
+    img.style.display = 'block';
+    img.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (err) {
+    toast('Error en vista previa: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '👁 Vista previa';
+  }
+});
+
+// ─────────────────────────────────────────────
+// Confirm position → go to tab 2
+// ─────────────────────────────────────────────
+document.getElementById('btn-confirm').addEventListener('click', () => {
+  if (!state.pdfId || !state.sigId) { toast('Carga un PDF y una firma primero'); return; }
+  state.confirmed = true;
+
+  // Update config bar
+  document.getElementById('cfg-pos').textContent =
+    `Posición: (${Math.round(state.pos.x)}, ${Math.round(state.pos.y)})  Tamaño: ${Math.round(state.pos.w)}×${Math.round(state.pos.h)} pt`;
+  document.getElementById('cfg-pos').className = '';
+  document.getElementById('cfg-sig').textContent = `Firma: lista`;
+  document.getElementById('cfg-sig').className = '';
+
+  // Enable batch tab and switch to it
+  document.getElementById('tab-batch').disabled = false;
+  document.getElementById('tab-batch').click();
+  toast('Posición confirmada ✓');
+  updateSignBtn();
+});
+
+// ─────────────────────────────────────────────
+// Batch — file list
+// ─────────────────────────────────────────────
+const dropZone   = document.getElementById('drop-zone');
+const batchInput = document.getElementById('batch-input');
+const fileList   = document.getElementById('file-list');
+
+batchInput.addEventListener('change', (e) => addFiles(e.target.files));
+
+dropZone.addEventListener('click', () => batchInput.click());
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  addFiles(e.dataTransfer.files);
+});
+
+function addFiles(fileObjs) {
+  for (const f of fileObjs) {
+    if (f.type !== 'application/pdf') continue;
+    if (state.batchFiles.find(x => x.name === f.name)) continue;
+    state.batchFiles.push(f);
+  }
+  renderFileList();
+  updateSignBtn();
+}
+
+function renderFileList() {
+  fileList.innerHTML = '';
+  state.batchFiles.forEach((f, i) => {
+    const div = document.createElement('div');
+    div.className = 'file-item';
+    div.innerHTML = `<span>📄 ${f.name}</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="badge">Listo</span>
+        <button onclick="removeFile(${i})" style="border:none;background:none;cursor:pointer;color:#aaa;font-size:1rem">✕</button>
+      </div>`;
+    fileList.appendChild(div);
+  });
+}
+
+window.removeFile = (i) => {
+  state.batchFiles.splice(i, 1);
+  renderFileList();
+  updateSignBtn();
+};
+
+function updateSignBtn() {
+  document.getElementById('btn-sign').disabled =
+    !(state.confirmed && state.batchFiles.length > 0);
+}
+
+// ─────────────────────────────────────────────
+// Batch sign & download
+// ─────────────────────────────────────────────
+document.getElementById('btn-sign').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-sign');
+  const pagesMode = document.querySelector('input[name="pages"]:checked').value;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Firmando…';
+  setStatus('sign-status', 'Procesando…');
+
+  const form = new FormData();
+  state.batchFiles.forEach(f => form.append('files', f));
+  form.append('sig_id', state.sigId);
+  form.append('x', state.pos.x);
+  form.append('y', state.pos.y);
+  form.append('w', state.pos.w);
+  form.append('h', state.pos.h);
+  form.append('pages', pagesMode);
+
+  try {
+    const res = await fetch('/api/batch-sign', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = 'signed_pdfs.zip';
+    a.click();
+    setStatus('sign-status', `¡Listo! ${state.batchFiles.length} PDF(s) firmado(s) y descargado(s).`, 'ok');
+    toast('ZIP descargado ✓');
+  } catch (err) {
+    setStatus('sign-status', 'Error: ' + err.message, 'err');
+    toast('Error: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✍ Firmar todo y descargar ZIP';
+    updateSignBtn();
+  }
+});
+</script>
+</body>
+</html>

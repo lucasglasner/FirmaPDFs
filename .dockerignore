@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+planos/
+planos_firma/
+rotated_signature.jpg
+firma*.jpeg
+firma*.jpg
+firma*.png
+sign.ipynb
+SPEC.md
