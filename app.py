@@ -42,11 +42,13 @@ PREVIEW_DPI = 150  # dots per inch for page rasterization
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _rasterize_page(pdf_path: Path, page_num: int, dpi: int = PREVIEW_DPI) -> bytes:
     """Return PNG bytes for a single PDF page."""
     doc = fitz.open(str(pdf_path))
     if page_num < 0 or page_num >= len(doc):
-        raise IndexError(f"Page {page_num} out of range (doc has {len(doc)} pages)")
+        raise IndexError(
+            f"Page {page_num} out of range (doc has {len(doc)} pages)")
     page = doc[page_num]
     mat = fitz.Matrix(dpi / 72, dpi / 72)
     pix = page.get_pixmap(matrix=mat, alpha=False)
@@ -61,7 +63,8 @@ def _sign_pdf(
     y: float,
     w: float,
     h: float,
-    pages: str = "all",   # "all" | "first" | "last"
+    pages: str = "all",   # "all" | "first" | "last" | "specific"
+    page_list: str = "",   # comma-separated 1-based page numbers when pages=="specific"
 ) -> bytes:
     """
     Insert the signature image into the PDF at the given rectangle (PDF points).
@@ -82,6 +85,15 @@ def _sign_pdf(
         page_indices = [0]
     elif pages == "last":
         page_indices = [n - 1]
+    elif pages == "specific":
+        page_indices = []
+        for token in page_list.split(","):
+            token = token.strip()
+            if token.isdigit():
+                idx = int(token) - 1  # convert 1-based to 0-based
+                if 0 <= idx < n:
+                    page_indices.append(idx)
+        page_indices = sorted(set(page_indices))  # deduplicate & sort
     else:
         page_indices = list(range(n))
 
@@ -148,7 +160,8 @@ async def upload_pdf(file: UploadFile = File(...)):
 async def get_page_image(pdf_id: str, page_num: int):
     """Return a rasterized PNG of the requested page."""
     if pdf_id not in _pdf_store:
-        raise HTTPException(status_code=404, detail="PDF not found. Please re-upload.")
+        raise HTTPException(
+            status_code=404, detail="PDF not found. Please re-upload.")
     try:
         png_bytes = _rasterize_page(_pdf_store[pdf_id], page_num)
     except IndexError as e:
@@ -186,7 +199,8 @@ async def upload_signature(file: UploadFile = File(...)):
 async def get_signature(sig_id: str):
     """Serve the stored signature image."""
     if sig_id not in _sig_store:
-        raise HTTPException(status_code=404, detail="Signature not found. Please re-upload.")
+        raise HTTPException(
+            status_code=404, detail="Signature not found. Please re-upload.")
     sig_path = _sig_store[sig_id]
     media_type = "image/png" if sig_path.suffix.lower() == ".png" else "image/jpeg"
     return Response(content=sig_path.read_bytes(), media_type=media_type)
@@ -242,15 +256,18 @@ async def batch_sign(
     w: float = Form(...),
     h: float = Form(...),
     pages: str = Form("all"),
+    page_list: str = Form(""),
 ):
     """
     Sign multiple PDFs with the stored signature at the given rect.
     Returns a ZIP archive containing all signed PDFs.
     """
     if sig_id not in _sig_store:
-        raise HTTPException(status_code=404, detail="Signature not found. Please re-upload.")
-    if pages not in ("all", "first", "last"):
-        raise HTTPException(status_code=422, detail="'pages' must be 'all', 'first', or 'last'.")
+        raise HTTPException(
+            status_code=404, detail="Signature not found. Please re-upload.")
+    if pages not in ("all", "first", "last", "specific"):
+        raise HTTPException(
+            status_code=422, detail="'pages' must be 'all', 'first', 'last' or 'specific'.")
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -267,6 +284,7 @@ async def batch_sign(
                     _sig_store[sig_id],
                     x, y, w, h,
                     pages=pages,
+                    page_list=page_list,
                 )
             finally:
                 tmp_pdf.unlink(missing_ok=True)

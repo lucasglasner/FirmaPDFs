@@ -374,6 +374,9 @@
       <label><input type="radio" name="pages" value="all" checked /> Todas las páginas</label>
       <label><input type="radio" name="pages" value="first" /> Solo primera página</label>
       <label><input type="radio" name="pages" value="last" /> Solo última página</label>
+      <label><input type="radio" name="pages" value="specific" /> Páginas específicas:</label>
+      <input type="text" id="inp-page-list" placeholder="ej. 2, 5, 10"
+        style="width:140px;padding:5px 10px;border:1px solid #ddd;border-radius:6px;font-size:.9rem;display:none" />
     </div>
 
     <div style="margin-top:20px">
@@ -815,12 +818,28 @@ function updateSignBtn() {
     !(state.confirmed && state.batchFiles.length > 0);
 }
 
+// Mostrar/ocultar campo de páginas específicas
+document.querySelectorAll('input[name="pages"]').forEach(r => {
+  r.addEventListener('change', () => {
+    document.getElementById('inp-page-list').style.display =
+      r.value === 'specific' && r.checked ? 'inline-block' : 'none';
+    if (r.value !== 'specific') document.getElementById('inp-page-list').value = '';
+  });
+});
+
 // ─────────────────────────────────────────────
 // Batch sign & download
 // ─────────────────────────────────────────────
 document.getElementById('btn-sign').addEventListener('click', async () => {
   const btn = document.getElementById('btn-sign');
   const pagesMode = document.querySelector('input[name="pages"]:checked').value;
+
+  if (pagesMode === 'specific') {
+    const raw = document.getElementById('inp-page-list').value.trim();
+    if (!raw) { toast('Indica al menos un número de página'); return; }
+    const valid = raw.split(',').map(s => s.trim()).every(s => /^\d+$/.test(s) && parseInt(s) >= 1);
+    if (!valid) { toast('Solo números enteros separados por comas (ej. 2, 5, 10)'); return; }
+  }
 
   btn.disabled = true;
   btn.textContent = '⏳ Firmando…';
@@ -834,6 +853,9 @@ document.getElementById('btn-sign').addEventListener('click', async () => {
   form.append('w', state.pos.w);
   form.append('h', state.pos.h);
   form.append('pages', pagesMode);
+  if (pagesMode === 'specific') {
+    form.append('page_list', document.getElementById('inp-page-list').value.trim());
+  }
 
   try {
     const res = await fetch('/api/batch-sign', { method: 'POST', body: form });
